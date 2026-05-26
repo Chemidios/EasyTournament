@@ -1,0 +1,163 @@
+-- ==========================================
+-- 1. TABLAS PRINCIPALES
+-- ==========================================
+
+-- Tabla de Perfiles (Extiende la tabla de Auth de Supabase)
+CREATE TABLE public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  steam_username TEXT,
+  riot_username TEXT,
+  reputation FLOAT DEFAULT 0,
+  is_admin BOOLEAN DEFAULT FALSE,
+  avatar_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Tabla de Torneos
+CREATE TABLE public.tournaments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  creator_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  game_name TEXT NOT NULL,
+  max_participants INTEGER NOT NULL,
+  current_participants INTEGER DEFAULT 0,  -- Para el contador automático
+  category TEXT DEFAULT 'Videojuegos',     -- Para los filtros de la App
+  modality TEXT DEFAULT 'Online',          -- Para los detalles de la App
+  status TEXT DEFAULT 'abierto',
+  start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  rating_avg FLOAT DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Tabla de Inscripciones (N a N)
+CREATE TABLE public.enrollments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tournament_id UUID REFERENCES public.tournaments(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  enrolled_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  UNIQUE(tournament_id, user_id) -- Evita duplicados
+);
+
+-- ==========================================
+-- 2. AUTOMATISMOS (TRIGGERS)
+-- ==========================================
+
+-- A. Creación automática de perfil al registrarse
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, username, is_admin)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+    false
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- B. Contador de participantes automático
+CREATE OR REPLACE FUNCTION public.update_tournament_participant_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        UPDATE public.tournaments
+        SET
+          current_participants = COALESCE(current_participants, 0) + 1,
+          -- Si llegamos al máximo, lo marcamos como cerrado
+          status = CASE
+            WHEN (current_participants + 1) >= max_participants THEN 'cerrado'
+            ELSE 'abierto'
+          END
+        WHERE id = NEW.tournament_id;
+    ELSIF (TG_OP = 'DELETE') THEN
+        UPDATE public.tournaments
+        SET
+          current_participants = GREATEST(0, COALESCE(current_participants, 0) - 1),
+          status = 'abierto' -- Si alguien se sale, vuelve a estar abierto
+        WHERE id = OLD.tournament_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.subtract_reputation(user_uuid UUID, amount FLOAT)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.profiles
+  SET reputation = GREATEST(0, reputation - amount)
+  WHERE id = user_uuid;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ==========================================
+-- 3. SEGURIDAD (POLÍTICAS RLS)
+-- ==========================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tournaments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+
+-- POLÍTICAS DE PERFILES
+-- Politica para ver perfiles --
+CREATE POLICY "Lectura pública de perfiles"
+ON public.profiles
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Política para editar perfiles --
+CREATE POLICY "Edición de perfil propio"
+ON public.profiles
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = id);
+
+-- POLÍTICAS DE TORNEOS
+-- Politica para insertar torneos --
+CREATE POLICY "Lectura pública de torneos"
+ON public.tournaments
+FOR SELECT USING (true);
+
+-- Politica para insertar torneos --
+CREATE POLICY "Inserción para admins o usuarios con reputación"
+ON public.tournaments FOR INSERT TO authenticated
+WITH CHECK (
+  (SELECT is_admin FROM public.profiles WHERE id = auth.uid()) = true OR
+  (SELECT reputation FROM public.profiles WHERE id = auth.uid()) >= 0
+);
+
+-- Política para borrar torneos --
+CREATE POLICY "Creators and Admins can delete tournaments"
+ON public.tournaments FOR DELETE TO authenticated
+USING (
+  auth.uid() = creator_id OR
+  (SELECT is_admin FROM public.profiles WHERE id = auth.uid()) = true
+);
+
+-- POLÍTICAS DE INSCRIPCIONES
+CREATE POLICY "Ver todas las inscripciones"
+ON public.enrollments
+FOR SELECT
+TO authenticated
+USING (true);
+
+CREATE POLICY "Inscribirse a sí mismo"
+ON public.enrollments
+FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Desinscribirse"
+ON public.enrollments
+FOR DELETE
+TO authenticated
+USING (auth.uid() = user_id);
