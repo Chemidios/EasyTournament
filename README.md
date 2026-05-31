@@ -22,7 +22,9 @@ Proyecto Final de Desarrollo de Aplicaciones Multiplataforma.
 
 ## Seguridad Avanzada: 
 - **Row Level Security (RLS):** Implementación de políticas de seguridad en base de datos que garantizan que solo los creadores o administradores puedan modificar la información sensible.
-- **Triggers PL/pgSQL:** Automatización completa en el servidor para:•Crear perfiles de usuario automáticamente tras el registro.•Actualizar contadores de participantes en tiempo real.•Recalcular el rating de los torneos tras cada nueva reseña.
+- **Triggers PL/pgSQL:** Automatización completa en el servidor para:•Crear perfiles de usuario automáticamente tras el registro.
+- Actualizar contadores de participantes en tiempo real.
+- Recalcular el puntuación de los torneos tras cada nueva reseña.
 
 ## 📄 Documentación
 Puedes consultar el manual técnico y de usuario completo aquí: [Descargar PDF](https://github.com/Chemidios/EasyTournament/blob/main/Documentacion.pdf)    
