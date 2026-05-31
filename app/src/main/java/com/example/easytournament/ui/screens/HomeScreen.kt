@@ -94,7 +94,7 @@ fun HomeScreen(
             val deferredAll = tournamentRepo.getAllTournaments()
             val deferredMy = tournamentRepo.getMyEnrolledTournaments()
 
-            val now = LocalDate.now()
+            val now = DateUtils.getNowInSpain()
             deferredAll.forEach { tournament ->
                 val tDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
                 /* Automatismo: Si la fecha ya pasó, el sistema cierra el torneo en el backend */
@@ -140,7 +140,7 @@ fun HomeScreen(
         refreshData()
     }
 
-    /* Interfaz de usuari */
+    /* Interfaz de usuario */
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             /* Navegación por pestañas con feedback visual de selección */
@@ -326,6 +326,7 @@ fun HomeScreen(
         )
     }
 
+    /* Dialogo de detalles del torneo */
     if (selectedTournamentDetails != null) {
         TournamentDetailDialog(
             tournament = selectedTournamentDetails!!,
@@ -333,9 +334,10 @@ fun HomeScreen(
             isEnrolled = myTournaments.any { it.id == selectedTournamentDetails!!.id },
             currentUserId = profile?.id,
             onDismiss = { selectedTournamentDetails = null },
+            /* Borrado de torneo */
             onDelete = {
                 scope.launch {
-                    val today = LocalDate.now()
+                    val today = DateUtils.getNowInSpain()
                     val tournamentDate =
                         ZonedDateTime.parse(selectedTournamentDetails!!.start_date).toLocalDate()
 
@@ -440,6 +442,7 @@ fun TournamentList(
             Text(emptyMessage)
         }
     } else {
+        /* Visualización de la lista con llamada a componente Card reutilizable */
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
@@ -473,7 +476,7 @@ fun TournamentCard(
     /* Lógica visual dinámica basada en estados de servidor */
     val isOwner = currentUserId == tournament.creator_id
     val isFull = tournament.current_participants >= tournament.max_participants
-    val today = LocalDate.now()
+    val today = DateUtils.getNowInSpain()
     val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
     val isPast = today.isAfter(tournamentDate)
     val displayStatus = if (isPast) "finalizado" else tournament.status
@@ -563,7 +566,7 @@ fun TournamentCard(
 
     val isOwner = currentUserId == tournament.creator_id
     val isFull = tournament.current_participants >= tournament.max_participants
-    val today = LocalDate.now()
+    val today = DateUtils.getNowInSpain()
     val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
 
     /* Lógica de estado temporal del torneo */
@@ -833,7 +836,7 @@ fun CreateTournamentDialog(
         calendar.get(Calendar.MONTH),
         calendar.get(Calendar.DAY_OF_MONTH)
     ).apply {
-        datePicker.minDate = System.currentTimeMillis() + 86400000
+        datePicker.minDate = System.currentTimeMillis()
     }
     /* Dialog de creación de torneos */
     AlertDialog(
@@ -885,7 +888,7 @@ fun CreateTournamentDialog(
             Button(onClick = {
                 if (title.isNotBlank() && game.isNotBlank() && selectedDate != "Seleccionar Fecha") {
                     try {
-                        val today = LocalDate.now()
+                        val today = DateUtils.getNowInSpain()
                         val selectedLocalDate = LocalDate.parse(selectedDate)
                         if (!selectedLocalDate.isAfter(today)) {
                             Toast.makeText(

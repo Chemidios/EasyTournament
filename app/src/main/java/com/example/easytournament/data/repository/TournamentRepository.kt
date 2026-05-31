@@ -8,6 +8,7 @@ import com.example.easytournament.data.model.Profile
 import com.example.easytournament.data.model.Tournament
 import com.example.easytournament.data.model.Review
 import com.example.easytournament.data.network.SupabaseClient
+import com.example.easytournament.utils.DateUtils
 import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.from
@@ -40,13 +41,13 @@ class TournamentRepository {
             val user = client.auth.currentUserOrNull() ?: return "Sesión expirada"
             val userId = user.id
 
-            val today = LocalDate.now()
+            val today = DateUtils.getNowInSpain()
             val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
 
             /* Penalización por desinscribirse el mismo día */
             val daysUntil = ChronoUnit.DAYS.between(today, tournamentDate)
             if (daysUntil <= 1) {
-                userRepo.updateReputation(userId, 0.5f)
+                userRepo.updateReputation(userId, -0.5f)
             }
             client.postgrest["enrollments"].delete {
                 filter {
@@ -68,7 +69,7 @@ class TournamentRepository {
 
             /* En caso de no ser admin hay penalización */
             if (!isAdmin) {
-                val today = LocalDate.now()
+                val today = DateUtils.getNowInSpain()
 
                 println("DEBUG_PENALTY: Hoy es $today. Fecha torneo recibida: ${tournament.start_date}")
 
