@@ -19,22 +19,28 @@ import com.example.easytournament.data.model.Profile
 import com.example.easytournament.data.repository.AuthRepository
 import kotlinx.coroutines.launch
 
+/* Pantalla de Perfil */
 @Composable
 fun ProfileScreen(
     repository: AuthRepository,
     userId: String?,
     onBack: (() -> Unit)? = null
 ) {
+    /* Gestión de estados y corrutinas */
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var profile by remember { mutableStateOf<Profile?>(null) }
+
+    /* Estados para el modo edición y persistencia temporal en formularios */
     var isEditing by remember { mutableStateOf(false) }
     var editUsername by remember { mutableStateOf("") }
     var editSteam by remember { mutableStateOf("") }
     var editRiot by remember { mutableStateOf("") }
 
+    /* Determina si el usuario tiene permisos de escritura */
     val isMyProfile = userId == null || userId == repository.getCurrentUser()?.id
 
+    /* Carga de perfil de usuario */
     fun loadData() {
         scope.launch {
             val p = if (isMyProfile) repository.getCurrentProfile()
@@ -50,6 +56,7 @@ fun ProfileScreen(
         }
     }
 
+    /* Sincronización de Ui tras cargar usuario*/
     LaunchedEffect(userId) {
         loadData()
     }
@@ -75,6 +82,7 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            /* Edicion de datos del perfil */
             if (isEditing) {
                 OutlinedTextField(
                     value = editUsername,
@@ -98,10 +106,12 @@ fun ProfileScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         scope.launch {
+                            /* Validación de tamaño de nombre de cliente */
                             if (editUsername.length < 4) {
                                 Toast.makeText(context, "Nombre demasiado corto", Toast.LENGTH_SHORT).show()
                                 return@launch
                             }
+                            /* Persistencia de cambios */
                             val success = repository.updateProfile(
                                 username = editUsername,
                                 steam = editSteam,
@@ -109,6 +119,7 @@ fun ProfileScreen(
                             )
 
                             if (success) {
+                                /* Actualización del perfil para reflejar cambios */
                                 profile = p.copy(
                                     username = editUsername,
                                     steam_username = editSteam.ifBlank { null },
@@ -125,6 +136,7 @@ fun ProfileScreen(
                         Text("Guardar")
                     }
 
+                    /* En caso de cancelación se restauran valores anteriores */
                     TextButton(onClick = {
                         editUsername = p.username
                         editSteam = p.steam_username ?: ""
@@ -135,17 +147,25 @@ fun ProfileScreen(
                     }
                 }
             } else {
+
+                /* Visualización del perfil */
                 Text(p.username, style = MaterialTheme.typography.headlineMedium)
-                Text("Reputación: ${p.reputation}", color = Color.Gray)
+
+                /* Reputación cambiante de color en funcion de si es positiva o negativa */
+                Text("Reputación: ${p.reputation}",
+                    color = if (p.reputation >= 0) Color(0xFF006400) else Color.Red)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                /* Nombre de usuario de Steam y Riot */
                 InfoRow(label = "Steam ID", value = p.steam_username ?: "No vinculado")
                 InfoRow(label = "Riot ID", value = p.riot_username ?: "No vinculado")
+                /* Botón de edición en caso de que sea su perfil */
                 if (isMyProfile) {
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = { isEditing = true }) {
                         Text("Editar Perfil")
                     }
                 }
+                /* En caso de acceder desde la pestaña de gestión de usuario habrá un botón de retorno */
                 if (userId != null && onBack != null) {
                     Spacer(Modifier.height(24.dp))
                     Button(
@@ -162,6 +182,7 @@ fun ProfileScreen(
     }
 }
 
+/* Componente reutilizable para filas de información en el perfil */
 @Composable
 fun InfoRow(label: String, value: String) {
     Row(

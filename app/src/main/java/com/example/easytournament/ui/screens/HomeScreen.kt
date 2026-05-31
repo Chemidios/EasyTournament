@@ -5,6 +5,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -32,6 +34,7 @@ import com.example.easytournament.data.model.Tournament
 import com.example.easytournament.data.repository.AuthRepository
 import com.example.easytournament.data.repository.TournamentRepository
 import com.example.easytournament.data.model.Review
+import com.example.easytournament.ui.theme.MMRed
 import com.example.easytournament.utils.DateUtils
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -44,21 +47,23 @@ import java.util.*
 @Composable
 fun HomeScreen(
     repository: AuthRepository,
-    tournamentRepo: TournamentRepository
+    tournamentRepo: TournamentRepository,
+    isDarkMode: Boolean
 ) {
+    /* Gestión de Estados y Contexto */
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    // Estados de Perfil y Carga
+    val darkModeActive = isDarkMode
+    /* Estados de Perfil y Carga */
     var profile by remember { mutableStateOf<Profile?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // Estados de Diálogos
+    /* Estados para la gestión de diálogs */
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedTournamentDetails by remember { mutableStateOf<Tournament?>(null) }
 
-    // Función para priorizar estados
+    /* Define el orden visual de los torneos basándose en su estado */
     val statusPriority = { status: String ->
         when (status.lowercase()) {
             "abierto" -> 1
@@ -68,52 +73,53 @@ fun HomeScreen(
         }
     }
 
-    // Estados de Torneos
+    /* Estados de Listado de Torneos */
     var allTournaments by remember { mutableStateOf<List<Tournament>>(emptyList()) }
     var myTournaments by remember { mutableStateOf<List<Tournament>>(emptyList()) }
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Mis Torneos", "Inscritos", "Explorar")
 
-    // Filtros
+    /* Filtros de torneos*/
     var selectedCategoryFilter by remember { mutableStateOf("Todos") }
     val categoryOptions = listOf("Todos", "Videojuegos", "Juegos de Mesa", "Deportes", "Otros")
     var hideClosed by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
+    /* Permiso de creacion: Solo admins o usuarios con reputación no negativa pueden organizar eventos */
     val canCreate = profile?.is_admin == true || (profile?.reputation ?: -1f) >= 0f
-
+    /* Actualiza la lista y verifica automáticamente si los torneos han caducado por fecha */
     val refreshData = {
         scope.launch {
             isRefreshing = true
             val deferredAll = tournamentRepo.getAllTournaments()
-            val deferredMy = repository.getMyEnrolledTournaments()
+            val deferredMy = tournamentRepo.getMyEnrolledTournaments()
 
             val now = LocalDate.now()
             deferredAll.forEach { tournament ->
                 val tDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
-
+                /* Automatismo: Si la fecha ya pasó, el sistema cierra el torneo en el backend */
                 if (now.isAfter(tDate) && tournament.status != "finalizado") {
                     tournamentRepo.updateTournamentStatus(tournament.id!!, "finalizado")
                 }
             }
             val finalAll = tournamentRepo.getAllTournaments()
-
             allTournaments = finalAll
             myTournaments = deferredMy
 
             val updatedProfile = repository.getCurrentProfile()
             profile = updatedProfile
 
+            /* Sincronización del diálogo de detalles si hay un torneo seleccionado */
             selectedTournamentDetails?.let { current ->
                 selectedTournamentDetails = finalAll.find { it.id == current.id }
             }
             isRefreshing = false
         }
     }
-
+    /* Flujo de inscripción de torneos */
     val handleEnroll = { t: Tournament ->
         scope.launch {
-            val error = repository.enrollInTournament(t)
+            val error = tournamentRepo.enrollInTournament(t)
             if (error == null) {
                 Toast.makeText(context, "¡Inscrito con éxito!", Toast.LENGTH_SHORT).show()
                 refreshData()
@@ -123,7 +129,7 @@ fun HomeScreen(
             }
         }
     }
-
+    /* Carga inicial de datos al entrar a la pantalla */
     LaunchedEffect(Unit) {
         profile = repository.getCurrentProfile()
         refreshData()
@@ -134,8 +140,10 @@ fun HomeScreen(
         refreshData()
     }
 
+    /* Interfaz de usuari */
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            /* Navegación por pestañas con feedback visual de selección */
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -149,7 +157,7 @@ fun HomeScreen(
                             Text(
                                 text = title,
                                 color = if (selectedTab == index)
-                                    MaterialTheme.colorScheme.primary
+                                    MMRed
                                 else
                                     MaterialTheme.colorScheme.onSurface
                             )
@@ -157,7 +165,7 @@ fun HomeScreen(
                     )
                 }
             }
-
+            /* Contenedor dinámico de listas según la pestaña activa */
             Box(modifier = Modifier.weight(1f)) {
                 if (isLoading || isRefreshing) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -165,7 +173,8 @@ fun HomeScreen(
                     }
                 } else {
                     when (selectedTab) {
-                        0 -> { // MIS TORNEOS CREADOS
+                        /* Pestaña: Torneos creados por el propio usuario */
+                        0 -> {
                             val myCreated = allTournaments
                                 .filter { it.creator_id == profile?.id }
                                 .sortedWith(
@@ -182,6 +191,7 @@ fun HomeScreen(
                                 onEnrollClick = { handleEnroll(it) }
                             )
                         }
+                        /* Pestaña: Torneos donde el usuario figura como participante */
                         1 -> {
                             val enrichedMyTournaments = allTournaments
                                 .filter { allT -> myTournaments.any { myT -> myT.id == allT.id } }
@@ -199,9 +209,9 @@ fun HomeScreen(
                                 onEnrollClick = { handleEnroll(it) }
                             )
                         }
+                        /* Pestaña: Aquí aparecen todos los torneos junto con una barra de búsqueda */
                         2 -> {
                             Column(modifier = Modifier.fillMaxSize()) {
-
                                 OutlinedTextField(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
@@ -247,7 +257,6 @@ fun HomeScreen(
                                     val matchesCategory = selectedCategoryFilter == "Todos" || t.category == selectedCategoryFilter
                                     val matchesClosed = if (hideClosed) t.status == "abierto" else true
 
-                                    // --- NUEVA LÓGICA DE BÚSQUEDA ---
                                     val matchesSearch = t.title.contains(searchQuery, ignoreCase = true) ||
                                             t.game_name.contains(searchQuery, ignoreCase = true)
 
@@ -271,7 +280,7 @@ fun HomeScreen(
                 }
             }
         }
-
+        /* Botón FAB: Solo visible si el usuario cumple los requisitos de reputación o es administrador */
         if (!isLoading && canCreate) {
             FloatingActionButton(
                 onClick = { showCreateDialog = true },
@@ -285,11 +294,13 @@ fun HomeScreen(
         }
     }
 
+    /* Logica de creacion de torneos */
     if (showCreateDialog) {
         CreateTournamentDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { title, game, participants, category, modality, desc, date ->
                 scope.launch {
+                    /* Mapeo de datos al modelo de entidad Tournament antes de la inserción */
                     val newTournament = Tournament(
                         creator_id = profile!!.id,
                         title = title,
@@ -336,18 +347,20 @@ fun HomeScreen(
                     )
 
                     if (error == null) {
+                        /* Lógica de penalización: Resta reputación si se cancela un torneo con mucha gente o poca antelación */
                         val limit = selectedTournamentDetails!!.max_participants / 2
-
                         val wasPenalized = !(profile?.is_admin == true) &&
                                 (daysUntil <= 1 || selectedTournamentDetails!!.current_participants > limit)
-
                         val msg = if (wasPenalized) {
                             "Torneo borrado. Se ha restado 1.0 de reputación por cancelación tardía/concurrida."
                         } else {
                             "Torneo borrado correctamente."
                         }
 
+                        val updatedProfile = repository.getCurrentProfile()
+                        profile = updatedProfile
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+
                         selectedTournamentDetails = null
                         refreshData()
                     } else {
@@ -367,15 +380,12 @@ fun HomeScreen(
                 }
             },
             onEnroll = { handleEnroll(it) },
+            /* Registro de feedback post-evento */
             onRate = { stars, comment ->
-                // 1. CAPTURAMOS los valores ANTES de entrar al scope
                 val tournamentToRate = selectedTournamentDetails
                 val userProfile = profile
-
                 scope.launch {
-                    // Log para confirmar que ahora NO son nulos
                     println("Debug: Ejecutando valoración. Profile: ${userProfile?.username}, Tournament: ${tournamentToRate?.title}")
-
                     if (userProfile != null && tournamentToRate != null) {
                         val review = Review(
                             tournament_id = tournamentToRate.id!!,
@@ -383,26 +393,22 @@ fun HomeScreen(
                             rating = stars,
                             comment = comment
                         )
-
-                        // Intentar guardar en Supabase
                         val error = tournamentRepo.addReview(review)
 
                         if (error == null) {
                             refreshData()
                             selectedTournamentDetails =
-                                null // Cerramos el diálogo después del éxito
+                                null
                             Toast.makeText(
                                 context,
                                 "¡Gracias por tu valoración!",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
-                            // Si hay error (ej: ya valoraste), mostramos el error real de Supabase
                             Toast.makeText(context, "No se pudo guardar: $error", Toast.LENGTH_LONG)
                                 .show()
                         }
                     } else {
-                        // Este mensaje ahora solo saldría si realmente fallara la sesión
                         val motivo =
                             if (userProfile == null) "Sesión perdida" else "Error técnico con el torneo"
                         Toast.makeText(context, "Error: $motivo", Toast.LENGTH_SHORT).show()
@@ -411,11 +417,13 @@ fun HomeScreen(
             },
             getReviews = { id -> tournamentRepo.getTournamentReviews(id) },
             getUsername = { userId -> tournamentRepo.getUsernameById(userId) },
-            getParticipants = { tournamentId -> tournamentRepo.getParticipantsIds(tournamentId) } // <--- CAMBIO AQUÍ
+            getParticipants = { tournamentId -> tournamentRepo.getParticipantsIds(tournamentId) },
+            darkModeActive = darkModeActive
         )
     }
 }
 
+/* Componente reutilizable para la lista de torneos */
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TournamentList(
@@ -451,6 +459,7 @@ fun TournamentList(
     }
 }
 
+/* Componente reutilizable para la lista de torneos */
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TournamentCard(
@@ -461,9 +470,9 @@ fun TournamentCard(
     onCardClick: () -> Unit,
     onEnrollClick: () -> Unit
 ) {
+    /* Lógica visual dinámica basada en estados de servidor */
     val isOwner = currentUserId == tournament.creator_id
     val isFull = tournament.current_participants >= tournament.max_participants
-
     val today = LocalDate.now()
     val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
     val isPast = today.isAfter(tournamentDate)
@@ -511,20 +520,15 @@ fun TournamentCard(
                 Button(
                     onClick = onEnrollClick,
                     modifier = Modifier.align(Alignment.End),
-                    // Mantenemos esta lógica: deshabilitado si ya pasó, si está lleno o si no está abierto
                     enabled = !isEnrolled && isOpen && !isFull
                 ) {
                     Text(
                         when {
-                            // Prioridad 1: Si ya pasó de fecha o la BDD dice finalizado
+                            /* Cambio de texto del botón en función de prioridad */
                             displayStatus == "finalizado" -> "Finalizado"
-                            // Prioridad 2: Si el usuario ya está dentro
                             isEnrolled -> "Ya inscrito"
-                            // Prioridad 3: Si no hay hueco y no estamos inscritos
                             isFull -> "Lleno"
-                            // Prioridad 4: Si el estado es cerrado (pero no finalizado)
                             displayStatus == "cerrado" -> "Cerrado"
-                            // Por defecto
                             else -> "Inscribirse"
                         }
                     )
@@ -534,9 +538,10 @@ fun TournamentCard(
     }
 }
 
+/* Dialog al tocar sobre un card de torneo */
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun TournamentDetailDialog(
+    fun TournamentDetailDialog(
     tournament: Tournament,
     isAdmin: Boolean,
     isEnrolled: Boolean,
@@ -546,32 +551,36 @@ fun TournamentDetailDialog(
     onUnenroll: (String) -> Unit,
     onEnroll: (Tournament) -> Unit,
     onRate: (Int, String) -> Unit,
+    darkModeActive: Boolean,
     getReviews: suspend (String) -> List<Review>,
     getUsername: suspend (String) -> String,
-    getParticipants: suspend (String) -> List<String> // Recibe lista de IDs
+    getParticipants: suspend (String) -> List<String>
 ) {
+    /* Gestión de estado local para valoraciones y carga de participantes */
+    val scope = rememberCoroutineScope()
+    var userRating by remember { mutableIntStateOf(0) }
+    var userComment by remember { mutableStateOf("") }
+
     val isOwner = currentUserId == tournament.creator_id
     val isFull = tournament.current_participants >= tournament.max_participants
     val today = LocalDate.now()
     val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
+
+    /* Lógica de estado temporal del torneo */
     val isPast = today.isAfter(tournamentDate)
     val displayStatus = if (isPast) "finalizado" else tournament.status
+
     val isOpen = displayStatus == "abierto"
 
-    var userRating by remember { mutableIntStateOf(0) }
-    var userComment by remember { mutableStateOf("") }
-
-    // Estados para Reseñas
+    /* Estados para Reseñas */
     var showReviews by remember { mutableStateOf(false) }
     var reviewsWithNames by remember { mutableStateOf<List<Pair<Review, String>>>(emptyList()) }
 
-    // Estados para Participantes
+    /* Estados para Participantes */
     var showParticipants by remember { mutableStateOf(false) }
     var participantsNames by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    val scope = rememberCoroutineScope()
-
-    // --- DIÁLOGO DE RESEÑAS ---
+    /* Dialog para visualizar lista de Reseñas e informacion detallada */
     if (showReviews) {
         AlertDialog(
             onDismissRequest = { showReviews = false },
@@ -609,8 +618,7 @@ fun TournamentDetailDialog(
         )
     }
 
-    // --- NUEVO: DIÁLOGO DE PARTICIPANTES ---
-    // --- DIÁLOGO DE LISTA DE PARTICIPANTES ---
+    /* Dialog para visualizar lista de participantes */
     if (showParticipants) {
         AlertDialog(
             onDismissRequest = { showParticipants = false },
@@ -622,7 +630,8 @@ fun TournamentDetailDialog(
                     } else {
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.heightIn(max = 400.dp) // Para que no ocupe toda la pantalla
+                            /* Para que evitar que ocupe toda la pantalla */
+                            modifier = Modifier.heightIn(max = 400.dp)
                         ) {
                             items(participantsNames) { name ->
                                 Card(
@@ -658,6 +667,7 @@ fun TournamentDetailDialog(
         )
     }
 
+    /* Dialog del torneo */
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tournament.title) },
@@ -669,21 +679,22 @@ fun TournamentDetailDialog(
                 Text("Fecha: ${DateUtils.formatStandardDate(tournament.start_date)}")
                 Text("Participantes: ${tournament.current_participants} / ${tournament.max_participants}")
 
-                // --- BOTÓN VER PARTICIPANTES ---
-                // Dentro del Column de TournamentDetailDialog, debajo de la información del torneo:
-                OutlinedButton(
+                /* Botón para ver Inscritos*/
+                Button(
                     onClick = {
                         scope.launch {
-                            // 1. Obtenemos los IDs de la tabla enrollments
                             val ids = getParticipants(tournament.id!!)
-                            // 2. Convertimos esos IDs en nombres reales usando la función getUsername
                             participantsNames = ids.map { id -> getUsername(id) }
                             showParticipants = true
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (darkModeActive) Color(0xFF800000) else Color.Red,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Icon(Icons.Default.Groups, contentDescription = null)
+                    Icon(Icons.Default.Groups, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(8.dp))
                     Text("Ver Inscritos (${tournament.current_participants})")
                 }
@@ -691,24 +702,47 @@ fun TournamentDetailDialog(
                 Text("Modalidad: ${tournament.modality}")
                 Text("Estado: ${displayStatus.uppercase()}")
 
-                if (isOwner || isAdmin) {
-                    OutlinedButton(
+                if ((isOwner || isAdmin) && !isPast) {
+                    /* Botón para ver reseñas */
+                    Button(
                         onClick = {
-                            scope.launch {
-                                val rawReviews = getReviews(tournament.id!!)
+                            scope.launch {val rawReviews = getReviews(tournament.id!!)
                                 reviewsWithNames = rawReviews.map { it to getUsername(it.reviewer_id) }
                                 showReviews = true
                             }
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (darkModeActive) Color(0xFF800000) else Color.Red,
+                            contentColor = Color.White
+                        )
                     ) {
-                        Icon(Icons.Default.Star, contentDescription = null)
+                        Icon(Icons.Default.Star, contentDescription = null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
                         Text("Ver ${tournament.rating_avg} ⭐ (Reseñas)")
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        /* Botón de borrado de torneo */
+                        IconButton(
+                            onClick = { onDelete(tournament.id!!) },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Eliminar Torneo",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
-
-                // Sección de valoración (mismo código que ya tenías)
+                /* Sección de Feedback sobre el torneolo permitida en torneos finalizados para inscritos */
                 if (displayStatus == "finalizado" && isEnrolled && !isOwner) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Text("¿Qué te pareció el torneo?", style = MaterialTheme.typography.titleSmall)
@@ -743,6 +777,7 @@ fun TournamentDetailDialog(
                 }
             }
         },
+        /* Botón de inscripción */
         confirmButton = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!isOwner && !isEnrolled && isOpen && !isFull) {
@@ -753,6 +788,7 @@ fun TournamentDetailDialog(
                 TextButton(onClick = onDismiss) { Text("Cerrar", color = Color.Red) }
             }
         },
+        /* Botón de desinscripción */
         dismissButton = {
             if (isEnrolled && !isPast) {
                 TextButton(onClick = { onUnenroll(tournament.id!!) }) {
@@ -770,6 +806,7 @@ fun CreateTournamentDialog(
     onDismiss: () -> Unit,
     onConfirm: (title: String, game: String, participants: Int, category: String, modality: String, desc: String, date: String) -> Unit
 ) {
+    /* Formulario de creación de torneo con validación de tipos y persistencia */
     var title by remember { mutableStateOf("") }
     var game by remember { mutableStateOf("") }
     var participants by remember { mutableStateOf("16") }
@@ -783,9 +820,11 @@ fun CreateTournamentDialog(
     var expanded by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(categories[0]) }
 
+    /* Selector de fecha */
     val datePickerDialog = DatePickerDialog(
         context,
-        { _, year, month, dayOfMonth ->
+        if (isSystemInDarkTheme()) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert,
+            { _, year, month, dayOfMonth ->
             val formattedMonth = (month + 1).toString().padStart(2, '0')
             val formattedDay = dayOfMonth.toString().padStart(2, '0')
             selectedDate = "$year-$formattedMonth-$formattedDay"
@@ -796,7 +835,7 @@ fun CreateTournamentDialog(
     ).apply {
         datePicker.minDate = System.currentTimeMillis() + 86400000
     }
-
+    /* Dialog de creación de torneos */
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Crear Nuevo Torneo") },
@@ -806,13 +845,20 @@ fun CreateTournamentDialog(
                 OutlinedTextField(value = game, onValueChange = { game = it }, label = { Text("Juego") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = participants, onValueChange = { participants = it }, label = { Text("Máx Participantes") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
-                    value = selectedDate, onValueChange = {}, readOnly = true, label = { Text("Fecha de Inicio") },
-                    trailingIcon = { IconButton(onClick = { datePickerDialog.show() }) { Icon(Icons.Default.DateRange, null) } },
+                    value = selectedDate,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Fecha de Inicio") },
+                    trailingIcon = {
+                        IconButton(onClick = { datePickerDialog.show() }) {
+                            Icon(Icons.Default.DateRange, contentDescription = null, tint = Color.Red)
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { datePickerDialog.show() }
                 )
-                // Selector de categoría (Exposed Dropdown Menu)
+                // Selector de categoría
                 ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                     OutlinedTextField(
                         value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Categoría") },
@@ -834,16 +880,13 @@ fun CreateTournamentDialog(
                 OutlinedTextField(value = desc, onValueChange = { desc = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
             }
         },
-
+        /* Botón de crear con comprobación de datos */
         confirmButton = {
             Button(onClick = {
                 if (title.isNotBlank() && game.isNotBlank() && selectedDate != "Seleccionar Fecha") {
                     try {
-                        // 1. Obtener la fecha actual y la seleccionada para comparar
                         val today = LocalDate.now()
                         val selectedLocalDate = LocalDate.parse(selectedDate)
-
-                        // 2. Validar que la fecha sea posterior a hoy
                         if (!selectedLocalDate.isAfter(today)) {
                             Toast.makeText(
                                 context,
@@ -874,7 +917,7 @@ fun CreateTournamentDialog(
                 }
             }) { Text("Crear") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color=MMRed) } }
     )
 }
 

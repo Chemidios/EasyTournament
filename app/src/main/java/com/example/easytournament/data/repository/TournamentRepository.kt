@@ -1,6 +1,7 @@
 package com.example.easytournament.data.repository
 
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import com.example.easytournament.data.model.Enrollment
 import com.example.easytournament.data.model.Profile
@@ -14,11 +15,12 @@ import java.time.LocalDate
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
-
+/* Repositorio de Torneos */
 class TournamentRepository {
     private val client = SupabaseClient.client
     private val userRepo = UserRepository()
 
+    /* Obtención de todos los torneos */
     suspend fun getAllTournaments(): List<Tournament> {
         return try {
             val result = client.from("tournaments")
@@ -31,6 +33,7 @@ class TournamentRepository {
         }
     }
 
+    /* Lógica para desinscribirse de un torneo */
     @RequiresApi(Build.VERSION_CODES.O)
     suspend fun unenrollFromTournament(tournament: Tournament): String? {
         return try {
@@ -40,11 +43,11 @@ class TournamentRepository {
             val today = LocalDate.now()
             val tournamentDate = ZonedDateTime.parse(tournament.start_date).toLocalDate()
 
+            /* Penalización por desinscribirse el mismo día */
             val daysUntil = ChronoUnit.DAYS.between(today, tournamentDate)
             if (daysUntil <= 1) {
                 userRepo.updateReputation(userId, 0.5f)
             }
-
             client.postgrest["enrollments"].delete {
                 filter {
                     eq("tournament_id", tournament.id!!)
@@ -57,11 +60,13 @@ class TournamentRepository {
         }
     }
 
+    /* Lógica de borrado de torneos */
     @RequiresApi(Build.VERSION_CODES.O)
     suspend fun deleteTournament(tournament: Tournament, isAdmin: Boolean): String? {
         return try {
             val userId = client.auth.currentUserOrNull()?.id ?: return "Sesión expirada"
 
+            /* En caso de no ser admin hay penalización */
             if (!isAdmin) {
                 val today = LocalDate.now()
 
@@ -82,7 +87,7 @@ class TournamentRepository {
 
                 if (daysUntil <= 1 || tournament.current_participants > limitParticipants) {
                     println("DEBUG_PENALTY: Condición de penalización CUMPLIDA. Llamando a penalizeUser...")
-                    userRepo.updateReputation(userId, 1.0f)
+                    userRepo.updateReputation(userId, -1.0f)
                 } else {
                     println("DEBUG_PENALTY: Condición NO cumplida. No se penaliza.")
                 }
@@ -100,6 +105,7 @@ class TournamentRepository {
         }
     }
 
+    /* Lógica para crear torneos */
     suspend fun createTournament(tournament: Tournament): String? {
         return try {
             client.from("tournaments").insert(tournament)
@@ -110,17 +116,15 @@ class TournamentRepository {
         }
     }
 
+    /* Lógica para cambiar el estado de los torneos */
     suspend fun updateTournamentStatus(tournamentId: String, newStatus: String) {
         try {
-            // Usamos .from("tabla") y el método update con sintaxis de Mapa/Lambda
             client.from("tournaments").update(
                 {
-                    // "status" es el nombre de la columna en tu SQL de Supabase
                     set("status", newStatus)
                 }
             ) {
                 filter {
-                    // "id" es el nombre de la columna identificadora
                     eq("id", tournamentId)
                 }
             }
@@ -131,15 +135,17 @@ class TournamentRepository {
         }
     }
 
+    /* Logica para añadir una review  */
     suspend fun addReview(review: Review): String? {
         return try {
             client.from("reviews").insert(review)
-            null // Éxito
+            null
         } catch (e: Exception) {
             e.message
         }
     }
 
+    /* Obtener reviews del torneo */
     suspend fun getTournamentReviews(tournamentId: String): List<Review> {
         return try {
             client.from("reviews").select {
@@ -150,6 +156,7 @@ class TournamentRepository {
         }
     }
 
+    /* Obtener ids de participantes */
     suspend fun getParticipantsIds(tournamentId: String): List<String> {
         return try {
             val result = client.from("enrollments")
@@ -158,13 +165,13 @@ class TournamentRepository {
                 }
                 .decodeList<Enrollment>()
 
-            // Esto devuelve la lista de IDs de TODOS los inscritos
             result.map { it.user_id }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
+    /* Obtener nombre de usuario por id */
     suspend fun getUsernameById(userId: String): String {
         return try {
             val profile = SupabaseClient.client.from("profiles")
@@ -173,6 +180,53 @@ class TournamentRepository {
             profile.username
         } catch (e: Exception) {
             "Usuario"
+        }
+    }
+
+    /* Lógica de inscripción */
+    suspend fun enrollInTournament(tournament: Tournament): String? {
+        return try {
+            val user = client.auth.currentUserOrNull() ?: return "Debes iniciar sesión"
+            if (tournament.current_participants >= tournament.max_participants) {
+                return "El torneo está lleno"
+            }
+            if (tournament.status != "abierto") {
+                return "Este torneo ya no acepta inscripciones"
+            }
+
+            val enrollment = Enrollment(
+                tournament_id = tournament.id!!,
+                user_id = user.id
+            )
+            client.postgrest["enrollments"].insert(enrollment)
+
+            null
+        } catch (e: Exception) {
+            Log.e("SUPABASE_ERROR", "Detalle: ${e.message}")
+            when {
+                e.message?.contains("duplicate key", true) == true -> "Ya estás inscrito"
+                else -> "Error: ${e.message}"
+            }
+        }
+    }
+
+    /* Lógica para obtener los torneos en los que se está inscrito */
+    suspend fun getMyEnrolledTournaments(): List<Tournament> {
+        return try {
+            val userId = client.auth.currentUserOrNull()?.id ?: return emptyList()
+            val enrollments = client.postgrest["enrollments"]
+                .select { filter { eq("user_id", userId) } }
+                .decodeList<Enrollment>()
+
+            val tournamentIds = enrollments.map { it.tournament_id }
+            if (tournamentIds.isEmpty()) return emptyList()
+
+            client.postgrest["tournaments"]
+                .select { filter { isIn("id", tournamentIds) } }
+                .decodeList<Tournament>()
+                .sortedBy { it.start_date }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 

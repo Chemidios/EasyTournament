@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
+/* Pantalla de Ajustes */
 @Composable
 fun SettingsScreen(
     isDarkMode: Boolean,
@@ -26,22 +27,26 @@ fun SettingsScreen(
         Text("Ajustes", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(20.dp))
 
+        /* Configuración de notificaciones (no implementado) */
         ListItem(
             headlineContent = { Text("Notificaciones") },
             supportingContent = { Text("Recibir avisos de nuevos torneos") },
             trailingContent = { Switch(checked = true, onCheckedChange = {}) }
         )
 
+        /* Configuración de idioma (no implementado) */
         ListItem(
             headlineContent = { Text("Idioma") },
             supportingContent = { Text("Español") },
             modifier = Modifier.padding(top = 8.dp)
         )
 
+        /* Gestión de modo oscuro */
         ListItem(
             headlineContent = { Text("Modo Oscuro") },
             supportingContent = { Text("Cambiar la apariencia de la aplicación") },
             leadingContent = {
+                /* Feedback visual dinámico */
                 Icon(
                     imageVector = if (isDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
                     contentDescription = null

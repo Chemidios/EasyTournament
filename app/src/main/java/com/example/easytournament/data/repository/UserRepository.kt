@@ -8,10 +8,13 @@ import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.Serializable
 
 
-
+/* Repositorio encargado de la gestión de perfiles y usuariosc*/
 class UserRepository {
+
+    /* Cliente de Supabase configurado centralizadamente en el objeto SupabaseClient */
     private val client = SupabaseClient.client
 
+    /* Funcion para obtener todos los perfiles en formato JSON y convertirlos en Profile */
     suspend fun getAllProfiles(): List<Profile> {
         return try {
             client.from("profiles").select().decodeList<Profile>()
@@ -21,10 +24,12 @@ class UserRepository {
         }
     }
 
+
+    /* Función para cambiar la reputación de un usuario mediante parametros recibidos */
     suspend fun updateReputation(userId: String, amount: Float): Boolean {
         return try {
             client.postgrest.rpc(
-                function = "subtract_reputation",
+                function = "update_user_reputation",
                 parameters = ReputationParams(
                     user_uuid = userId,
                     amount = amount
@@ -38,6 +43,7 @@ class UserRepository {
     }
 }
 
+/* Clase exclusiva para cambio de parametros */
 @Serializable
 data class ReputationParams(
     val user_uuid: String,
